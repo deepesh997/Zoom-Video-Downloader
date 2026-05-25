@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.DS_Store
+dist/
+build/
+.next/
+out/
+Redis/
+Redis5/
+*.zip
+dump.rdb
+backend/temp/
+backend/src/temp/
