@@ -1,14 +1,9 @@
 import { Router } from 'express';
 import { extractMetadata } from '../services/extractor.service';
-import { Queue } from 'bullmq';
-import IORedis from 'ioredis';
-import path from 'path';
-import fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
+import axios from 'axios';
+import ffmpeg from 'fluent-ffmpeg';
 
 const router = Router();
-const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', { maxRetriesPerRequest: null });
-const downloadQueue = new Queue('downloadQueue', { connection: redisConnection });
 
 // Extract metadata or check if passcode is needed
 router.post('/extract', async (req, res) => {
@@ -25,79 +20,52 @@ router.post('/extract', async (req, res) => {
   }
 });
 
-// Enqueue download and conversion job
-router.post('/convert', async (req, res) => {
-  try {
-    const { videoUrl, format, title, cookies } = req.body;
-    if (!videoUrl || !format) return res.status(400).json({ error: 'Missing required parameters' });
-    
-    const jobId = uuidv4();
-    const job = await downloadQueue.add('downloadAndConvert', {
-      videoUrl,
-      format,
-      title: title || 'Zoom_Recording',
-      cookies
-    }, { jobId });
-    
-    res.json({ jobId, status: 'queued' });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to queue conversion' });
+// Stream video or audio directly to client
+router.get('/download', async (req, res) => {
+  const { url, format, cookies, title } = req.query;
+  
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ error: 'Missing video URL' });
   }
-});
+  
+  const ext = format === 'mp4' ? 'mp4' : (typeof format === 'string' ? format : 'mp4');
+  const safeTitle = (typeof title === 'string' && title.trim()) ? title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'zoom_recording';
+  const filename = `${safeTitle}.${ext}`;
 
-// Check job status
-router.get('/status/:jobId', async (req, res) => {
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  
   try {
-    const job = await downloadQueue.getJob(req.params.jobId);
-    if (!job) return res.status(404).json({ error: 'Job not found' });
-    
-    const state = await job.getState();
-    const progress = job.progress;
-    
-    res.json({
-      jobId: job.id,
-      state,
-      progress,
-      failedReason: job.failedReason,
-      result: job.returnvalue,
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to retrieve job status' });
-  }
-});
-
-// Download the final file
-router.get('/download/:jobId', async (req, res) => {
-  try {
-    const job = await downloadQueue.getJob(req.params.jobId);
-    if (!job || !job.returnvalue || !job.returnvalue.filePath) {
-      return res.status(404).json({ error: 'File not ready or job not found' });
-    }
-    
-    const filePath = job.returnvalue.filePath;
-    if (fs.existsSync(filePath)) {
-      res.download(filePath, path.basename(filePath));
-    } else {
-      res.status(404).json({ error: 'File not found on disk' });
-    }
-  } catch (error: any) {
-    res.status(500).json({ error: 'Download failed' });
-  }
-});
-
-// Manual cleanup
-router.delete('/cleanup/:jobId', async (req, res) => {
-  try {
-    const job = await downloadQueue.getJob(req.params.jobId);
-    if (job && job.returnvalue && job.returnvalue.filePath) {
-      const filePath = job.returnvalue.filePath;
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+    const response = await axios({
+      method: 'GET',
+      url: url,
+      responseType: 'stream',
+      headers: {
+        'Cookie': (typeof cookies === 'string' ? cookies : ''),
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://zoom.us/'
       }
+    });
+
+    if (ext === 'mp4') {
+      res.setHeader('Content-Type', 'video/mp4');
+      response.data.pipe(res);
+    } else {
+      res.setHeader('Content-Type', `audio/${ext}`);
+      ffmpeg(response.data)
+        .format(ext)
+        .on('error', (err) => {
+           console.error('FFmpeg streaming error:', err);
+           if (!res.headersSent) res.status(500).end();
+        })
+        .pipe(res, { end: true });
     }
-    res.json({ status: 'cleaned' });
   } catch (error: any) {
-    res.status(500).json({ error: 'Cleanup failed' });
+    console.error('Download stream error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to stream video' });
+    } else {
+      res.end();
+    }
   }
 });
 

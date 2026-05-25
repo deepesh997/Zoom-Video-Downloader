@@ -37,12 +37,14 @@ export default function DownloadHistory({ newJob }: { newJob?: any }) {
                 <p className="text-sm font-medium text-zinc-100 truncate">{job.title}</p>
                 <p className="text-xs text-zinc-500">{new Date(job.date).toLocaleString()} • {job.format.toUpperCase()}</p>
               </div>
-              <a 
-                href={getDownloadUrl(job.id)} 
-                className="text-xs px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-md transition-colors whitespace-nowrap ml-4"
-              >
-                Download
-              </a>
+              {job.url && (
+                <a 
+                  href={getDownloadUrl(job.url, job.format, job.title, job.cookies)} 
+                  className="text-xs px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-md transition-colors whitespace-nowrap ml-4"
+                >
+                  Download Again
+                </a>
+              )}
             </CardContent>
           </Card>
         ))}

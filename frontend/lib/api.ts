@@ -7,20 +7,12 @@ export const extractMetadata = async (url: string, passcode?: string) => {
   return data;
 };
 
-export const startConversion = async (videoUrl: string, format: string, title?: string, cookies?: string) => {
-  const { data } = await axios.post(`${API_URL}/convert`, { videoUrl, format, title, cookies });
-  return data;
-};
-
-export const getJobStatus = async (jobId: string) => {
-  const { data } = await axios.get(`${API_URL}/status/${jobId}`);
-  return data;
-};
-
-export const getDownloadUrl = (jobId: string) => {
-  return `${API_URL}/download/${jobId}`;
-};
-
-export const cleanupJob = async (jobId: string) => {
-  await axios.delete(`${API_URL}/cleanup/${jobId}`);
+export const getDownloadUrl = (url: string, format: string, title?: string, cookies?: string) => {
+  const params = new URLSearchParams({
+    url,
+    format,
+    title: title || '',
+    cookies: cookies || ''
+  });
+  return `${API_URL}/download?${params.toString()}`;
 };

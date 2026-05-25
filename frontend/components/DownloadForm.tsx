@@ -3,8 +3,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { extractMetadata, startConversion, getJobStatus, getDownloadUrl } from '@/lib/api';
-import { Progress } from '@/components/ui/progress';
+import { extractMetadata, getDownloadUrl } from '@/lib/api';
 import { toast } from 'sonner';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
@@ -15,8 +14,6 @@ export default function DownloadForm({ onHistoryUpdate }: { onHistoryUpdate: (jo
   const [needsPasscode, setNeedsPasscode] = useState(false);
   const [metadata, setMetadata] = useState<any>(null);
   const [format, setFormat] = useState('mp4');
-  const [progress, setProgress] = useState(0);
-  const [jobId, setJobId] = useState<string | null>(null);
 
   const handleExtract = async () => {
     try {
@@ -30,7 +27,7 @@ export default function DownloadForm({ onHistoryUpdate }: { onHistoryUpdate: (jo
       } else {
         setMetadata(data);
         setNeedsPasscode(false);
-        toast.success('Success', { description: 'Recording extracted. Ready for conversion.' });
+        toast.success('Success', { description: 'Recording extracted. Ready for download.' });
       }
     } catch (error: any) {
       const backendError = error.response?.data?.error || error.message;
@@ -40,40 +37,15 @@ export default function DownloadForm({ onHistoryUpdate }: { onHistoryUpdate: (jo
     }
   };
 
-  const handleConvert = async () => {
+  const handleDownload = () => {
     if (!metadata?.videoUrl) return;
-    try {
-      setLoading(true);
-      const data = await startConversion(metadata.videoUrl, format, metadata.title, metadata.cookies);
-      setJobId(data.jobId);
-      pollStatus(data.jobId);
-    } catch (error: any) {
-      toast.error('Conversion failed', { description: error.message });
-      setLoading(false);
-    }
-  };
-
-  const pollStatus = async (id: string) => {
-    const interval = setInterval(async () => {
-      try {
-        const status = await getJobStatus(id);
-        setProgress(status.progress || 0);
-        
-        if (status.state === 'completed') {
-          clearInterval(interval);
-          setLoading(false);
-          toast.success('Completed', { description: 'Your file is ready to download.' });
-          const jobData = { id, title: metadata?.title, format, date: new Date().toISOString() };
-          onHistoryUpdate(jobData);
-        } else if (status.state === 'failed') {
-          clearInterval(interval);
-          setLoading(false);
-          toast.error('Failed', { description: status.failedReason });
-        }
-      } catch (err) {
-        // Ignore polling errors
-      }
-    }, 2000);
+    const downloadUrl = getDownloadUrl(metadata.videoUrl, format, metadata.title, metadata.cookies);
+    window.location.href = downloadUrl;
+    toast.success('Downloading...', { description: 'Your file should start downloading shortly.' });
+    
+    // Add to history
+    const jobData = { url: metadata.videoUrl, cookies: metadata.cookies, title: metadata.title, format, date: new Date().toISOString() };
+    onHistoryUpdate(jobData);
   };
 
   return (
@@ -120,24 +92,11 @@ export default function DownloadForm({ onHistoryUpdate }: { onHistoryUpdate: (jo
               </Select>
             </div>
             
-            {jobId && progress > 0 && progress < 100 && (
-              <div className="space-y-2">
-                <Progress value={progress} className="h-2" />
-                <p className="text-xs text-zinc-400 text-right">{progress}%</p>
-              </div>
-            )}
+            <Button onClick={handleDownload} className="w-full bg-emerald-600 hover:bg-emerald-700">
+              Download File
+            </Button>
             
-            {!jobId ? (
-              <Button onClick={handleConvert} disabled={loading} className="w-full">
-                Convert & Download
-              </Button>
-            ) : progress === 100 ? (
-              <Button onClick={() => window.location.href = getDownloadUrl(jobId)} className="w-full bg-emerald-600 hover:bg-emerald-700">
-                Download Now
-              </Button>
-            ) : null}
-            
-            <Button variant="ghost" onClick={() => { setMetadata(null); setJobId(null); setProgress(0); }} disabled={loading} className="w-full">
+            <Button variant="ghost" onClick={() => { setMetadata(null); }} className="w-full">
               Start Over
             </Button>
           </>
