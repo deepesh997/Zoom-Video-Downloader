@@ -33,7 +33,8 @@ export default function DownloadForm({ onHistoryUpdate }: { onHistoryUpdate: (jo
         toast.success('Success', { description: 'Recording extracted. Ready for conversion.' });
       }
     } catch (error: any) {
-      toast.error('Extraction failed', { description: error.message });
+      const backendError = error.response?.data?.error || error.message;
+      toast.error('Extraction failed', { description: backendError });
     } finally {
       setLoading(false);
     }

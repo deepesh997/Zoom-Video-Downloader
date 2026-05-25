@@ -20,6 +20,7 @@ router.post('/extract', async (req, res) => {
     const metadata = await extractMetadata(url, passcode);
     res.json(metadata);
   } catch (error: any) {
+    console.error('Extraction Error:', error);
     res.status(500).json({ error: error.message || 'Extraction failed' });
   }
 });
