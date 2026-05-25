@@ -20,14 +20,21 @@ export async function extractMetadata(url: string, passcode?: string): Promise<E
   try {
     let videoUrl = '';
     
+    // Aggressively block heavy resources (images, css, fonts) to save RAM and prevent OOM crashes on Render
+    await page.route('**/*', route => {
+      const type = route.request().resourceType();
+      if (['image', 'stylesheet', 'font', 'other'].includes(type)) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
+
     // Intercept media requests to grab the raw MP4 URL
     page.on('request', request => {
       const reqUrl = request.url();
-      // Simple heuristic for media requests: ends in .mp4 or has video/mp4 in mime types
-      // Zoom player usually streams or requests an mp4 chunk
       if (reqUrl.includes('.mp4') || reqUrl.includes('play')) {
-         // In reality, Zoom's DOM or XHR requests are complex.
-         // This is a simplified extraction pattern.
+         // Simple heuristic for media requests
       }
     });
 
