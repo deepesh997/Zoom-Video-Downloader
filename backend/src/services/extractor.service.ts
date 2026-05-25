@@ -11,7 +11,7 @@ export interface ExtractionMetadata {
 
 export async function extractMetadata(url: string, passcode?: string): Promise<ExtractionMetadata> {
   const browser = await chromium.launch({ 
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--no-zygote'],
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
     headless: true 
   });
   const context = await browser.newContext();
