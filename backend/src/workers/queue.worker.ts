@@ -30,7 +30,7 @@ const worker = new Worker('downloadQueue', async (job) => {
       }
     });
 
-    const totalLength = parseInt(response.headers['content-length'] || '0', 10);
+    const totalLength = parseInt((response.headers['content-length'] as string) || '0', 10);
     let downloadedLength = 0;
 
     const writer = fs.createWriteStream(rawFilePath);
