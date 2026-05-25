@@ -46,6 +46,17 @@ router.get('/download', async (req, res) => {
       }
     });
 
+    // Prevent Node.js from crashing if the stream gets interrupted!
+    response.data.on('error', (err: any) => {
+      console.error('Axios incoming stream error:', err);
+      if (!res.headersSent) res.status(500).end();
+      else res.end();
+    });
+
+    res.on('error', (err: any) => {
+      console.error('Express response stream error (Client disconnected):', err);
+    });
+
     if (ext === 'mp4') {
       res.setHeader('Content-Type', 'video/mp4');
       response.data.pipe(res);
@@ -56,6 +67,7 @@ router.get('/download', async (req, res) => {
         .on('error', (err) => {
            console.error('FFmpeg streaming error:', err);
            if (!res.headersSent) res.status(500).end();
+           else res.end();
         })
         .pipe(res, { end: true });
     }
