@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { chromium, Browser } from 'playwright';
 
 export interface ExtractionMetadata {
   requiresPasscode: boolean;
@@ -9,17 +9,59 @@ export interface ExtractionMetadata {
   cookies?: string;
 }
 
+let browserInstance: Browser | null = null;
+let launchPromise: Promise<Browser> | null = null;
+
+async function getBrowser(): Promise<Browser> {
+  if (browserInstance) return browserInstance;
+  
+  if (!launchPromise) {
+    console.log('Launching Playwright Chromium singleton instance...');
+    launchPromise = chromium.launch({ 
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox', 
+        '--disable-dev-shm-usage', 
+        '--disable-gpu',
+        '--no-zygote',
+        '--single-process',
+        '--disable-features=site-per-process',
+        '--js-flags="--max-old-space-size=128"'
+      ],
+      headless: true 
+    }).then(browser => {
+      browserInstance = browser;
+      launchPromise = null;
+      
+      browser.on('disconnected', () => {
+        console.log('Playwright Chromium browser disconnected.');
+        browserInstance = null;
+      });
+      
+      return browser;
+    }).catch(err => {
+      console.error('Failed to launch Playwright browser:', err);
+      launchPromise = null;
+      throw err;
+    });
+  }
+  
+  return launchPromise;
+}
+
 export async function extractMetadata(url: string, passcode?: string): Promise<ExtractionMetadata> {
-  const browser = await chromium.launch({ 
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    headless: true 
-  });
+  let browser: Browser;
+  try {
+    browser = await getBrowser();
+  } catch (launchError: any) {
+    console.error('Browser launch error details:', launchError);
+    throw new Error('Browser initialization failed. This can happen on Render free tier due to missing system dependencies. Please ensure Docker is used or chromium dependencies are installed. Detail: ' + launchError.message);
+  }
+
   const context = await browser.newContext();
   const page = await context.newPage();
   
   try {
-    let videoUrl = '';
-    
     // Aggressively block heavy resources (images, css, fonts) to save RAM and prevent OOM crashes on Render
     await page.route('**/*', route => {
       const type = route.request().resourceType();
@@ -30,26 +72,26 @@ export async function extractMetadata(url: string, passcode?: string): Promise<E
       }
     });
 
-    // Intercept media requests to grab the raw MP4 URL
+    // Intercept media requests to grab the raw MP4 URL in case page element inspection fails
+    let interceptedVideoUrl = '';
     page.on('request', request => {
       const reqUrl = request.url();
       if (reqUrl.includes('.mp4') || reqUrl.includes('play')) {
-         // Simple heuristic for media requests
+         interceptedVideoUrl = reqUrl;
       }
     });
 
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
     
     // Check if passcode is required
     const passcodeField = page.locator('input[type="password"]');
     if (await passcodeField.count() > 0) {
       if (!passcode) {
-        await browser.close();
         return { requiresPasscode: true };
       } else {
         await passcodeField.fill(passcode);
         await page.locator('button[type="submit"], button:has-text("Watch")').click();
-        await page.waitForNavigation({ waitUntil: 'networkidle' }).catch(() => {});
+        await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 10000 }).catch(() => {});
       }
     }
     
@@ -59,17 +101,14 @@ export async function extractMetadata(url: string, passcode?: string): Promise<E
     const videoSrc = await page.evaluate(() => {
       const video = document.querySelector('video');
       return video ? video.src : null;
-    });
+    }) || interceptedVideoUrl;
 
     const title = await page.title();
 
     const cookiesArray = await context.cookies();
     const cookies = cookiesArray.map(c => `${c.name}=${c.value}`).join('; ');
 
-    await browser.close();
-
     if (!videoSrc) {
-      // Fallback: Check if we captured a media request, or if there's a download button.
       return { requiresPasscode: false, error: 'Could not extract video source URL' };
     }
 
@@ -80,7 +119,9 @@ export async function extractMetadata(url: string, passcode?: string): Promise<E
       cookies
     };
   } catch (error: any) {
-    await browser.close();
     throw new Error('Extraction failed: ' + error.message);
+  } finally {
+    // CRITICAL: Always close the context to free memory!
+    await context.close().catch(err => console.error('Failed to close context:', err));
   }
 }
